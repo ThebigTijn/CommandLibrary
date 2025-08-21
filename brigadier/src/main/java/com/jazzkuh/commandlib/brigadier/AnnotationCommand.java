@@ -15,7 +15,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
-import org.jetbrains.annotations.NotNull;
+import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -27,6 +27,8 @@ import java.util.concurrent.CompletableFuture;
 /* Made by ThebigTijn */
 
 public class AnnotationCommand<S> implements AnnotationCommandImpl {
+	private static final ComponentLogger LOGGER = ComponentLogger.logger("CommandLibrary");
+
 	protected String commandName;
 	protected final List<AnnotationSubCommand> mainCommands = new ArrayList<>();
 	protected final List<AnnotationSubCommand> subCommands = new ArrayList<>();
@@ -67,15 +69,15 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 	}
 
 	public void register(CommandDispatcher<S> dispatcher) {
-		LiteralArgumentBuilder<S> command = LiteralArgumentBuilder.literal(this.commandName);
+		LiteralArgumentBuilder<S> command = LiteralArgumentBuilder.<S>literal(this.commandName);
 
 		// Register subcommands
 		for (AnnotationSubCommand subCommand : this.subCommands) {
-			LiteralArgumentBuilder<S> subCommandBuilder = LiteralArgumentBuilder.literal(subCommand.getName());
+			LiteralArgumentBuilder<S> subCommandBuilder = LiteralArgumentBuilder.<S>literal(subCommand.getName());
 
 			// Add aliases for subcommands
 			for (String alias : subCommand.getAliases()) {
-				LiteralArgumentBuilder<S> aliasBuilder = LiteralArgumentBuilder.literal(alias);
+				LiteralArgumentBuilder<S> aliasBuilder = LiteralArgumentBuilder.<S>literal(alias);
 				buildSubCommandArguments(aliasBuilder, subCommand);
 				command.then(aliasBuilder);
 			}
@@ -96,11 +98,21 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 		}
 
 		dispatcher.register(command);
+
+		try {
+			dispatcher.register(command);
+			LOGGER.info("Registered command: {}", this.getCommandName());
+		} catch (Exception exception) {
+			LOGGER.info("Unable to register command: {}", this.getCommandName());
+		}
+
 	}
 
 	private void buildSubCommandArguments(LiteralArgumentBuilder<S> builder, AnnotationSubCommand subCommand) {
 		Method method = subCommand.getMethod();
 		Parameter[] parameters = method.getParameters();
+
+		LiteralArgumentBuilder<S> current = builder;
 
 		for (int i = 1; i < parameters.length; i++) {
 			Parameter param = parameters[i];
@@ -115,10 +127,10 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 				argBuilder.executes(context -> this.executeSubCommand(context, subCommand));
 			}
 
-			builder.then(argBuilder);
+			current.then(argBuilder);
 
 			if (isOptional) {
-				builder.executes(context -> this.executeSubCommand(context, subCommand));
+				current.executes(context -> this.executeSubCommand(context, subCommand));
 			}
 		}
 
@@ -182,7 +194,7 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 		}
 
 		if (this.mainCommands.size() == 1) {
-			this.executeCommand(this.mainCommands.getFirst(), context.getSource(), args);
+			this.executeCommand(this.mainCommands.get(0), context.getSource(), args);
 		} else {
 			AnnotationSubCommand matchingCommand = findMatchingMainCommand(args);
 			if (matchingCommand != null) {
@@ -238,7 +250,7 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 
 	private AnnotationSubCommand findMatchingMainCommand(String[] args) {
 		if (mainCommands.size() == 1) {
-			return mainCommands.getFirst();
+			return mainCommands.get(0);
 		}
 
 		for (AnnotationSubCommand mainCommand : mainCommands) {
@@ -381,24 +393,6 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 	}
 
 	private void sendUsage(S sender) {
-		List<String> usageMessages = getStrings(sender);
-
-		if (usageMessages.isEmpty()) {
-			sendErrorMessage(sender, "No available command syntaxes.");
-			return;
-		}
-
-		if (usageMessages.size() == 1) {
-			sendMessage(sender, "Invalid command syntax. Correct command syntax is: " + usageMessages.getFirst());
-		} else {
-			sendMessage(sender, "Invalid command syntax. Correct command syntax's are:");
-			for (String usage : usageMessages) {
-				sendMessage(sender, usage);
-			}
-		}
-	}
-
-	private @NotNull List<String> getStrings(S sender) {
 		List<String> usageMessages = new ArrayList<>();
 
 		for (AnnotationSubCommand mainCommand : this.mainCommands) {
@@ -414,7 +408,20 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 				usageMessages.add(usage);
 			}
 		}
-		return usageMessages;
+
+		if (usageMessages.isEmpty()) {
+			sendErrorMessage(sender, "No available command syntaxes.");
+			return;
+		}
+
+		if (usageMessages.size() == 1) {
+			sendMessage(sender, "Invalid command syntax. Correct command syntax is: " + usageMessages.get(0));
+		} else {
+			sendMessage(sender, "Invalid command syntax. Correct command syntax's are:");
+			for (String usage : usageMessages) {
+				sendMessage(sender, usage);
+			}
+		}
 	}
 
 	private void sendMessage(S sender, String message) {
