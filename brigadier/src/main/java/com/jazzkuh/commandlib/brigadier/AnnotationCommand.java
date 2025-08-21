@@ -15,6 +15,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -22,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+
+/* Made by ThebigTijn */
 
 public class AnnotationCommand<S> implements AnnotationCommandImpl {
 	protected String commandName;
@@ -64,13 +67,15 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 	}
 
 	public void register(CommandDispatcher<S> dispatcher) {
-		LiteralArgumentBuilder<S> command = LiteralArgumentBuilder.<S>literal(this.commandName);
+		LiteralArgumentBuilder<S> command = LiteralArgumentBuilder.literal(this.commandName);
 
+		// Register subcommands
 		for (AnnotationSubCommand subCommand : this.subCommands) {
-			LiteralArgumentBuilder<S> subCommandBuilder = LiteralArgumentBuilder.<S>literal(subCommand.getName());
+			LiteralArgumentBuilder<S> subCommandBuilder = LiteralArgumentBuilder.literal(subCommand.getName());
 
+			// Add aliases for subcommands
 			for (String alias : subCommand.getAliases()) {
-				LiteralArgumentBuilder<S> aliasBuilder = LiteralArgumentBuilder.<S>literal(alias);
+				LiteralArgumentBuilder<S> aliasBuilder = LiteralArgumentBuilder.literal(alias);
 				buildSubCommandArguments(aliasBuilder, subCommand);
 				command.then(aliasBuilder);
 			}
@@ -79,6 +84,7 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 			command.then(subCommandBuilder);
 		}
 
+		// Register main commands with dynamic arguments
 		if (!this.mainCommands.isEmpty()) {
 			RequiredArgumentBuilder<S, String> argsBuilder = RequiredArgumentBuilder
 					.<S, String>argument("args", StringArgumentType.greedyString())
@@ -96,8 +102,6 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 		Method method = subCommand.getMethod();
 		Parameter[] parameters = method.getParameters();
 
-		LiteralArgumentBuilder<S> current = builder;
-
 		for (int i = 1; i < parameters.length; i++) {
 			Parameter param = parameters[i];
 			String paramName = param.getName();
@@ -111,10 +115,10 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 				argBuilder.executes(context -> this.executeSubCommand(context, subCommand));
 			}
 
-			current.then(argBuilder);
+			builder.then(argBuilder);
 
 			if (isOptional) {
-				current.executes(context -> this.executeSubCommand(context, subCommand));
+				builder.executes(context -> this.executeSubCommand(context, subCommand));
 			}
 		}
 
@@ -167,6 +171,7 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 		try {
 			argsString = StringArgumentType.getString(context, "args");
 		} catch (IllegalArgumentException ignored) {
+			// No args provided
 		}
 
 		String[] args = argsString.isEmpty() ? new String[0] : argsString.split(" ");
@@ -177,7 +182,7 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 		}
 
 		if (this.mainCommands.size() == 1) {
-			this.executeCommand(this.mainCommands.get(0), context.getSource(), args);
+			this.executeCommand(this.mainCommands.getFirst(), context.getSource(), args);
 		} else {
 			AnnotationSubCommand matchingCommand = findMatchingMainCommand(args);
 			if (matchingCommand != null) {
@@ -233,7 +238,7 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 
 	private AnnotationSubCommand findMatchingMainCommand(String[] args) {
 		if (mainCommands.size() == 1) {
-			return mainCommands.get(0);
+			return mainCommands.getFirst();
 		}
 
 		for (AnnotationSubCommand mainCommand : mainCommands) {
@@ -350,29 +355,50 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 		try {
 			commandExecutor.execute(commandSender, args);
 		} catch (CommandException commandException) {
-			if (commandException instanceof ArgumentException) {
-				sendUsage(sender);
-			} else if (commandException instanceof PermissionException permissionException) {
-				sendErrorMessage(sender, permissionException.getMessage());
-			} else if (commandException instanceof ContextResolverException contextResolverException) {
-				sendErrorMessage(sender, "A context resolver was not found for: " + contextResolverException.getMessage());
-			} else if (commandException instanceof ParameterException parameterException) {
-				sendErrorMessage(sender, parameterException.getMessage());
-			} else if (commandException instanceof ErrorException errorException) {
-				sendErrorMessage(sender, "An error occurred while executing this subcommand: " + errorException.getMessage());
+			switch (commandException) {
+				case ArgumentException argumentException -> sendUsage(sender);
+				case PermissionException permissionException ->
+						sendErrorMessage(sender, permissionException.getMessage());
+				case ContextResolverException contextResolverException ->
+						sendErrorMessage(sender, "A context resolver was not found for: " + contextResolverException.getMessage());
+				case ParameterException parameterException -> sendErrorMessage(sender, parameterException.getMessage());
+				case ErrorException errorException ->
+						sendErrorMessage(sender, "An error occurred while executing this subcommand: " + errorException.getMessage());
+				default -> {
+				}
 			}
 		}
 	}
 
 	private boolean hasPermission(S sender, String permission) {
+		// Override this method in implementations to check permissions
 		return permission == null;
 	}
 
 	private void sendErrorMessage(S sender, String message) {
+		// Override this method in implementations to send error messages
 		System.err.println("Error: " + message);
 	}
 
 	private void sendUsage(S sender) {
+		List<String> usageMessages = getStrings(sender);
+
+		if (usageMessages.isEmpty()) {
+			sendErrorMessage(sender, "No available command syntaxes.");
+			return;
+		}
+
+		if (usageMessages.size() == 1) {
+			sendMessage(sender, "Invalid command syntax. Correct command syntax is: " + usageMessages.getFirst());
+		} else {
+			sendMessage(sender, "Invalid command syntax. Correct command syntax's are:");
+			for (String usage : usageMessages) {
+				sendMessage(sender, usage);
+			}
+		}
+	}
+
+	private @NotNull List<String> getStrings(S sender) {
 		List<String> usageMessages = new ArrayList<>();
 
 		for (AnnotationSubCommand mainCommand : this.mainCommands) {
@@ -388,23 +414,11 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 				usageMessages.add(usage);
 			}
 		}
-
-		if (usageMessages.isEmpty()) {
-			sendErrorMessage(sender, "No available command syntaxes.");
-			return;
-		}
-
-		if (usageMessages.size() == 1) {
-			sendMessage(sender, "Invalid command syntax. Correct command syntax is: " + usageMessages.get(0));
-		} else {
-			sendMessage(sender, "Invalid command syntax. Correct command syntax's are:");
-			for (String usage : usageMessages) {
-				sendMessage(sender, usage);
-			}
-		}
+		return usageMessages;
 	}
 
 	private void sendMessage(S sender, String message) {
+		// Override this method in implementations to send messages
 		System.out.println(message);
 	}
 }
