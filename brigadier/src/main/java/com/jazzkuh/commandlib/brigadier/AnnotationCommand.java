@@ -97,8 +97,6 @@ public class AnnotationCommand<S> implements AnnotationCommandImpl {
 			command.executes(this::executeMainCommand);
 		}
 
-		dispatcher.register(command);
-
 		try {
 			dispatcher.register(command);
 			LOGGER.info("Registered command: {}", this.getCommandName());
