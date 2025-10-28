@@ -16,6 +16,7 @@
         <module>minestom</module>
         <module>jda</module>
         <module>brigadier</module>
+        <module>fabric</module>
     </modules>
 
     <properties>

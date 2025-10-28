@@ -1,10 +1,10 @@
-package com.jazzkuh.commandlib.brigadier.utils.source;
+package com.jazzkuh.commandlib.brigadier.utils.context;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public class CommandSource<S> {
+public class CommandContext<S> {
     private final S source;
 }
